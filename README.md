@@ -1,43 +1,65 @@
 # Linux Character Device Driver with Concurrent Buffering and IOCTL Control
 
-`shivam_char` is a production-style portfolio project that implements a
-loadable Linux character-device driver with a concurrent circular buffer,
-blocking and non-blocking I/O, ioctl controls, poll/select readiness, user-space
-tools, integration tests, scripts, and documentation.
+`shivam_char` is a small Linux character-device driver I built to practice the
+parts of kernel development that are hard to learn from isolated snippets:
+registration, VFS callbacks, user/kernel copies, blocking behavior,
+concurrency, ioctl design, and testing from user space.
 
-The device node is:
+The module creates one device:
 
 ```text
 /dev/shivam_char
 ```
 
+It is intentionally virtual. There is no PCIe card, USB endpoint, or sensor
+behind it. The point is to make the driver mechanics easy to build, break,
+inspect, and explain inside a disposable Linux VM.
+
 ## 1. Project Overview
 
-The kernel module registers a character device and exposes a bounded
-kernel-space byte buffer. User programs can open the device, write bytes, read
-bytes, clear buffered data, query statistics, resize the logical capacity, set a
-global non-blocking mode, and wait for readiness with `poll`.
+The driver exposes a shared byte stream backed by a bounded circular buffer in
+kernel memory. User-space programs can:
 
-## 2. Why This Was Built
+- open and close the device
+- write bytes into the kernel buffer
+- read bytes back in FIFO order
+- clear the buffer with ioctl
+- query driver statistics
+- resize the logical buffer capacity within fixed limits
+- switch a global non-blocking mode on or off
+- wait for readability/writability with `poll`
+- exercise multiple readers and writers at the same time
 
-This project demonstrates practical Linux systems skills for an entry-level
-software engineering portfolio: kernel module structure, VFS callbacks,
-concurrency, memory safety, user/kernel copies, ioctl ABI design, wait queues,
-debuggability, shell automation, C user-space tooling, and repeatable tests.
+This is not meant to be a clever driver. It is meant to be a readable one.
+
+## 2. Why I Built This
+
+I wanted a project that sits just below normal application code but is still
+small enough to reason about fully. Character drivers are a good place for
+that: a bug is visible from a normal shell, but the implementation still deals
+with kernel memory, locking, wait queues, and ABI boundaries.
+
+The parts I cared most about were:
+
+- handling short reads and short writes honestly
+- avoiding sleep-while-locked mistakes in blocking I/O
+- making ioctl structures versioned instead of throwaway
+- having tests that catch hangs instead of waiting forever
+- documenting the tradeoffs, not just the happy path
 
 ## 3. Architecture Diagram
 
 ```mermaid
 flowchart TD
-    User["User Process"]
+    User["User process"]
     VFS["VFS"]
     Fops["shivam_char file_operations"]
-    Buffer["Circular Buffer"]
-    Mutex["Mutex"]
-    RQ["Reader Wait Queue"]
-    WQ["Writer Wait Queue"]
-    Stats["Statistics"]
-    Ioctl["IOCTL Control Plane"]
+    Buffer["circular buffer"]
+    Mutex["mutex"]
+    RQ["reader wait queue"]
+    WQ["writer wait queue"]
+    Stats["statistics"]
+    Ioctl["ioctl control path"]
 
     User -->|"open/read/write/ioctl/poll"| VFS
     VFS --> Fops
@@ -51,14 +73,14 @@ flowchart TD
 
 ## 4. Kernel/User Interaction
 
-The shared UAPI header is `include/shivam_char_ioctl.h`. The kernel module and
-user-space programs include the same ioctl definitions, fixed-width structures,
-ABI version, capacity limits, and mode flags.
+Both the module and the user-space tools include
+`include/shivam_char_ioctl.h`. That header is the ABI: ioctl numbers, capacity
+limits, mode flags, and the statistics structure all live there.
 
-Reads and writes are byte-stream operations. Writes are partial: if some space
-is available, the driver writes what fits and returns the byte count. If no
-space is available, blocking descriptors sleep and non-blocking descriptors
-return `EAGAIN`.
+Reads and writes behave like a byte stream. A write can be partial if the
+buffer does not have enough free space. That is deliberate, because callers of
+character devices need to be prepared for short I/O. If the buffer is empty or
+full and the descriptor is non-blocking, the driver returns `EAGAIN`.
 
 ## 5. Repository Structure
 
@@ -105,36 +127,38 @@ linux-char-driver/
 
 ## 6. Supported Features
 
-- Dynamic character-device registration with `alloc_chrdev_region`
-- `struct cdev`, class creation, and `/dev/shivam_char`
+- Dynamic device-number allocation with `alloc_chrdev_region`
+- `struct cdev`, `class_create`, and `device_create`
 - `open`, `release`, `read`, `write`, `unlocked_ioctl`, `poll`, `no_llseek`
-- Circular buffer with default 4096-byte capacity
-- Safe capacity range: 256 to 65536 bytes
-- Resize preserving unread bytes when possible
-- Blocking and non-blocking I/O
-- Wait queues for readers and writers
+- Circular buffer with 4096-byte default capacity
+- Capacity limits from 256 to 65536 bytes
+- Resize that preserves unread bytes when possible
+- Blocking reads and writes with wait queues
+- Per-descriptor `O_NONBLOCK` handling
+- Global non-blocking mode through ioctl
 - `poll`, `select`, and `epoll` readiness support
 - Versioned ioctl statistics ABI
-- Atomic operational counters
-- Rate-limited kernel warnings
-- User-space CLI and pthread concurrency test
-- Shell integration tests with timeout and dmesg scanning
+- Atomic counters for common operational stats
+- User-space CLI for manual testing
+- Pthread-based concurrent reader/writer test
+- Shell integration tests with timeouts and `dmesg` checks
 
 ## 7. Prerequisites
 
-Use a disposable Ubuntu VM with a snapshot. Kernel modules run with kernel
-privileges, and bugs can crash the operating system.
+Use a disposable Ubuntu VM. Take a snapshot first if you can. Kernel modules
+run with kernel privileges, so a bad pointer or locking mistake can bring the
+machine down.
 
-Install typical dependencies:
-
-```sh
-sudo bash scripts/setup.sh --install --yes
-```
-
-Or inspect requirements without installing:
+Check the expected packages:
 
 ```sh
 bash scripts/setup.sh
+```
+
+Install them on Debian/Ubuntu:
+
+```sh
+sudo bash scripts/setup.sh --install --yes
 ```
 
 ## 8. Build Instructions
@@ -145,11 +169,14 @@ make module
 make userspace
 ```
 
-The module is built through the official external-module Kbuild path:
+The kernel module is built the normal out-of-tree way:
 
 ```sh
 make -C /lib/modules/$(uname -r)/build M=$PWD modules
 ```
+
+If that path does not exist, install the matching header package for the
+running kernel.
 
 ## 9. Load and Unload
 
@@ -159,17 +186,19 @@ sudo bash scripts/unload.sh
 sudo bash scripts/reload.sh
 ```
 
-Module parameters:
+Load with module parameters:
 
 ```sh
 sudo bash scripts/load.sh buffer_capacity=8192 debug=1
 ```
 
-For a disposable local VM only, the load script can relax device permissions:
+For a throwaway VM, you can relax the device permissions:
 
 ```sh
 sudo bash scripts/load.sh --chmod
 ```
+
+I do not recommend doing that on a shared or important machine.
 
 ## 10. CLI Usage
 
@@ -187,7 +216,7 @@ userspace/shivam_char_client poll-read 5000
 userspace/shivam_char_client interactive
 ```
 
-Use per-descriptor non-blocking behavior:
+Per-descriptor non-blocking read:
 
 ```sh
 userspace/shivam_char_client --nonblock read 16
@@ -195,14 +224,14 @@ userspace/shivam_char_client --nonblock read 16
 
 ## 11. Testing
 
-Run all integration tests in a privileged disposable VM:
+Run the full integration suite from the VM:
 
 ```sh
 make
 sudo bash tests/run_all_tests.sh
 ```
 
-Individual tests:
+Run one test while debugging:
 
 ```sh
 sudo bash tests/test_basic.sh
@@ -211,6 +240,8 @@ sudo bash tests/test_nonblocking.sh
 sudo bash tests/test_poll.sh
 sudo bash tests/test_concurrency.sh
 ```
+
+The runner unloads the module on exit and stores logs under `tests/logs/`.
 
 ## 12. Sample Output
 
@@ -223,6 +254,7 @@ hello world
 
 $ userspace/shivam_char_client stats
 abi_version: 1
+struct_size: 136
 capacity: 4096
 stored_bytes: 0
 available_bytes: 4096
@@ -230,16 +262,18 @@ total_bytes_read: 11
 total_bytes_written: 11
 ```
 
-Concurrency test output includes real measured values:
+The concurrency test prints measured values, so throughput will vary by VM:
 
 ```text
 writers: 4
 readers: 4
 messages_per_writer: 250
 message_size: 64
+writes_completed: 1000
 frames_validated: 1000
+missing_messages: 0
 validation_failures: 0
-throughput_mib_s: 3.421
+throughput_mib_s: <depends on the VM>
 ```
 
 ## 13. Error Scenarios
@@ -249,27 +283,27 @@ throughput_mib_s: 3.421
 - Invalid capacity returns `EINVAL`.
 - Resize below unread bytes returns `EMSGSIZE`.
 - Bad user pointer returns `EFAULT`.
-- Interrupted blocking wait returns `ERESTARTSYS` inside the kernel path.
+- Interrupted blocking waits return through the usual restart path.
 - Unsupported ioctl returns `ENOTTY`.
-- `rmmod` while descriptors are open fails because the module is busy.
+- `rmmod` fails while a process still has the device open.
 
 ## 14. Security Considerations
 
-Do not test unfinished kernel modules on an important host. This module never
-trusts user pointers, validates ioctl commands and capacities, avoids exposing
-kernel pointers, initializes exported structures, protects shared state with a
-mutex, and uses rate-limited warnings for repeated bad operations.
+The driver treats user space as untrusted. It uses `copy_to_user` and
+`copy_from_user`, validates ioctl numbers and inputs, zeroes exported stats,
+does not expose kernel addresses, and protects shared buffer state with a
+mutex.
 
-Device permissions are not made world-writable by default. The `--chmod` loader
-option is only for disposable local testing.
+The scripts do not make the device world-writable unless `--chmod` is passed
+explicitly. Keep that option for local VM testing.
 
 ## 15. Known Limitations
 
-- The driver models a virtual byte stream, not real hardware.
-- There is one shared device buffer, not per-open buffers.
-- It does not guarantee message boundaries.
-- It does not implement async notification with `fasync`.
-- Integration tests require a privileged Linux VM and matching kernel headers.
+- The device is virtual and does not talk to hardware.
+- There is one shared buffer for the device.
+- Reads and writes are stream operations, so message boundaries are not kept.
+- There is no `fasync`/`SIGIO` support.
+- Full tests need root in a Linux VM with matching kernel headers.
 
 ## 16. Troubleshooting
 
@@ -292,7 +326,7 @@ sudo fuser -v /dev/shivam_char
 sudo bash scripts/unload.sh
 ```
 
-Inspect state:
+Quick inspection:
 
 ```sh
 sudo bash scripts/inspect.sh
@@ -301,33 +335,31 @@ dmesg | grep 'shivam_char:'
 
 ## 17. Interview Discussion Points
 
-Be ready to explain why user pointers require copy helpers, why the driver uses
-a mutex rather than a spinlock, how wait queues avoid busy waiting, what `poll`
-returns, why ioctl structures need ABI versioning, and how cleanup unwinds
-partial initialization.
+The useful discussion is not just "I wrote a driver." It is why the driver
+uses a mutex, why user pointers go through copy helpers, how blocking I/O is
+structured, how `poll` hooks into wait queues, and why ioctl ABIs are awkward
+to change later.
 
-See `docs/interview-notes.md` for detailed answers.
+See `docs/interview-notes.md` for short answers.
 
 ## 18. Resume Bullets
 
-- Built a Linux character-device kernel module using `cdev`, VFS
-  `file_operations`, wait queues, ioctl controls, and dynamic device-number
-  registration.
-- Implemented a thread-safe circular buffer with blocking/non-blocking I/O,
-  partial-write semantics, poll readiness, and safe resize preserving unread
-  data.
-- Developed C11 user-space tools for manual operation, statistics inspection,
-  ioctl control, polling, and pthread-based concurrency validation.
-- Created VM-focused shell integration tests and CI-safe static checks for
-  user-space builds, shell scripts, and analysis tooling.
+- Built a loadable Linux character-device module with dynamic device-number
+  allocation, `cdev`, VFS callbacks, wait queues, and ioctl controls.
+- Implemented a mutex-protected circular buffer with blocking/non-blocking
+  I/O, partial writes, poll readiness, and safe capacity changes.
+- Wrote C11 user-space tools for manual operation, statistics inspection,
+  polling, ioctl control, and threaded concurrency validation.
+- Added VM-oriented integration tests and CI-safe checks for user-space builds,
+  shell scripts, and static analysis.
 
 ## 19. Future Improvements
 
-- Add `fasync`/`SIGIO` notification support.
-- Add per-open buffer mode as an optional ioctl setting.
-- Add tracepoints for deeper observability.
-- Add kselftest-style tests for kernel-tree integration.
-- Extend the design into a platform, USB, or PCIe sample driver.
+- Add `fasync`/`SIGIO` notification.
+- Add an optional per-open buffer mode.
+- Add tracepoints for deeper debugging.
+- Convert the shell tests into a kselftest-style layout.
+- Adapt the structure into a small platform, USB, or PCIe sample driver.
 
 ## Build and Run Commands
 
@@ -336,8 +368,8 @@ cd linux-char-driver
 bash scripts/setup.sh
 make
 sudo bash scripts/load.sh buffer_capacity=4096
-userspace/shivam_char_client write "portfolio driver"
-userspace/shivam_char_client read 16
+userspace/shivam_char_client write "driver smoke test"
+userspace/shivam_char_client read 17
 userspace/shivam_char_client stats
 sudo bash scripts/unload.sh
 ```
@@ -349,8 +381,8 @@ make
 sudo bash tests/run_all_tests.sh
 ```
 
-The deterministic order is basic I/O, ioctl, non-blocking behavior, poll, and
-concurrency. The runner preserves logs in `tests/logs/`.
+The order is basic I/O, ioctl behavior, non-blocking behavior, poll, and then
+concurrency.
 
 ## Common Troubleshooting Steps
 
@@ -366,9 +398,9 @@ dmesg | tail -100
 
 - `include/shivam_char_ioctl.h` is shared by kernel and user space.
 - `Kbuild` lists both kernel objects.
-- Top-level `Makefile` uses `/lib/modules/$(uname -r)/build`.
+- The top-level `Makefile` uses `/lib/modules/$(uname -r)/build`.
 - Scripts and tests reference `shivam_char.ko` and `/dev/shivam_char`.
-- Blocking waits drop the mutex before sleeping.
-- Cleanup destroys device, class, cdev, device number, buffer, and context.
+- Blocking paths drop the mutex before sleeping.
+- Cleanup destroys the device, class, cdev, device number, buffer, and context.
 - User-space programs close file descriptors and free allocated memory.
-- GitHub Actions builds user-space tools and avoids fake module loading.
+- GitHub Actions builds user-space tools without pretending to load the module.

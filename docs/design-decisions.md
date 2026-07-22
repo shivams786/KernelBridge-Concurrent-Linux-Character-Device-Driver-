@@ -1,67 +1,84 @@
 # Design Decisions
 
-## Character Device
+These are the choices I would expect to be asked about in a review or
+interview. Most of them are not exotic; they are the boring choices that keep a
+small driver understandable.
 
-A character device is a good fit because the project models byte-stream I/O
-without block-device sector semantics or network-stack policy. It exercises the
-VFS interface that many real kernel drivers expose to user space.
+## Why a Character Device
+
+The driver exposes a byte stream, so a character device fits naturally. A block
+device would add sector semantics that do not belong here, and a network device
+would pull in a completely different stack. This project is about the VFS path
+and user/kernel boundary.
 
 ## Partial Writes
 
-Writes use normal stream-style partial semantics. If space exists, the driver
-writes as much as the buffer can currently accept and returns that byte count.
-If no space exists, blocking descriptors wait and non-blocking descriptors
-receive `-EAGAIN`.
+Writes are partial. If 100 bytes are requested and only 30 bytes fit, the
+driver writes 30 and returns 30. If no bytes fit, it either waits or returns
+`-EAGAIN`, depending on blocking mode.
 
-This policy avoids surprising large sleeps for huge writes and teaches callers
-to handle short writes correctly.
+That behavior is easier to compose with normal Unix I/O loops. It also makes
+the user-space client handle short writes instead of assuming the kernel did
+everything in one call.
 
 ## Mutex Instead of Spinlock
 
-The shared state is protected with a mutex because `copy_to_user`,
-`copy_from_user`, and memory allocation paths may sleep. A spinlock would be
-wrong around those operations. The critical sections are small and the device
-is a teaching/portfolio driver, so a mutex is clear and appropriate.
+The driver uses a mutex because the protected paths can sleep. User-copy
+helpers may fault and sleep, resize allocates memory, and blocking paths need
+to drop the lock before waiting.
 
-## Wait-Queue Design
+A spinlock would be the wrong tool around those operations. If this were an
+interrupt-driven hardware driver, the split between spinlocks, mutexes, and
+work queues would need more careful design.
 
-Separate reader and writer wait queues make readiness events explicit. Readers
-are woken after writes. Writers are woken after reads, clears, and successful
-resizes. Blocking code checks state, releases the mutex, sleeps, and then
-rechecks state after wakeup.
+## Wait Queues
 
-## ABI Versioning
+Readers and writers have separate wait queues because they wait on different
+conditions. Readers need data. Writers need free space.
 
-Ioctl ABIs are difficult to change after user-space programs depend on them.
-The stats structure carries `abi_version` and `struct_size`, uses fixed-width
-Linux integer types, and avoids pointers. This gives future versions a clear
-compatibility boundary.
+The important part is not the wait queue itself; it is the lock choreography.
+The driver checks state under the mutex, releases the mutex before sleeping,
+and then checks again after waking. That avoids sleeping while holding the
+state lock and handles spurious or stale wakeups.
+
+## IOCTL ABI Shape
+
+The ioctl header uses fixed-width Linux types and avoids pointers in exported
+structures. The stats payload carries an ABI version and the structure size.
+
+That may look formal for a sample driver, but ioctl interfaces tend to outlive
+the original code. It is better to leave a version marker on day one than to
+wish one existed later.
 
 ## Resize Behavior
 
-Resize preserves unread data when possible by linearizing the old circular
-contents into the new allocation. A resize below the unread byte count is
-rejected instead of silently dropping data.
+Resize keeps unread data if the new capacity can hold it. If it cannot, the
+driver rejects the request instead of dropping data silently.
 
-## Rate-Limited Logs
+The implementation copies the unread circular contents into a new linear
+allocation, then swaps it into the buffer state while holding the mutex.
 
-Normal reads and writes do not log. Fault paths use rate-limited warnings so a
-bad user process cannot flood `dmesg`. Important lifecycle and resize events
-use `pr_info`.
+## Logging
 
-## Virtual Device Scope
-
-The driver is not tied to physical hardware. That keeps the project runnable in
-a disposable VM while still demonstrating core driver mechanics. A PCIe, USB,
-or platform version would add bus probing, hardware resource management,
-interrupt handling, DMA constraints, and device-specific power management.
+Normal read and write calls stay quiet. They are too frequent for useful logs.
+Load, unload, resize, and mode changes use `pr_info`. Bad user-copy and
+unsupported ioctl paths use rate-limited warnings so a broken process cannot
+fill `dmesg` in a tight loop.
 
 ## Security Choices
 
-The driver does not trust user-provided pointers or sizes. It uses
-`copy_to_user` and `copy_from_user`, validates ioctl command numbers, rejects
-invalid capacities, does not expose kernel addresses, does not return
-uninitialized padding, and keeps `/dev/shivam_char` permissions controlled by
-udev/root unless the load script is explicitly asked to relax them for a
-throwaway local test VM.
+The driver does not trust user pointers or user-provided capacities. It uses
+`copy_to_user` and `copy_from_user`, validates ioctl command numbers, zeroes
+the stats structure before returning it, and never exposes kernel addresses.
+
+The load script leaves device permissions alone unless `--chmod` is passed.
+That option is only there to make local VM testing less annoying.
+
+## Why No Hardware
+
+Keeping the device virtual makes the project reproducible. Anyone with a Linux
+VM and matching kernel headers can build it. A hardware-backed version would
+need probe/remove callbacks, register access, interrupts, DMA rules, and power
+management. Those are valuable topics, but they would hide the core character
+device path this project is focused on.
 

@@ -1,84 +1,108 @@
 # Architecture
 
+This note describes how the driver is wired together. It is written from the
+code outward, because that is usually how I debug kernel projects: start with
+what the module registers, then follow one system call at a time.
+
 ## Device Registration
 
-`shivam_char` is an out-of-tree Linux kernel module. During module
-initialization it validates the `buffer_capacity` module parameter, allocates
-the circular buffer, obtains a dynamic device number with
-`alloc_chrdev_region`, initializes `struct cdev`, calls `cdev_add`, creates a
-device class, and publishes `/dev/shivam_char` through `device_create`.
+`shivam_char` is an out-of-tree module. On load, it:
 
-The module does not hardcode a major number. Dynamic allocation avoids
-colliding with devices already registered by the running kernel.
+- validates the `buffer_capacity` module parameter
+- allocates the circular buffer
+- asks the kernel for a device number with `alloc_chrdev_region`
+- initializes and registers a `struct cdev`
+- creates a class and device node for `/dev/shivam_char`
+
+The driver does not use a hardcoded major number. The running kernel may
+already have that number assigned to something else, so dynamic allocation is
+the safer default.
 
 ## VFS Dispatch
 
-User processes interact with `/dev/shivam_char` using normal file-descriptor
-operations. The VFS resolves those operations to the driver's
-`struct file_operations` table:
+Once `/dev/shivam_char` exists, normal system calls reach the driver through
+the VFS. The module fills a `struct file_operations` table with these handlers:
 
-- `open` stores the driver context in `file->private_data`.
-- `release` decrements the current open-handle count.
-- `read` copies bytes from the circular buffer to user space.
-- `write` copies bytes from user space into the circular buffer.
-- `unlocked_ioctl` handles the control-plane ABI.
-- `poll` reports readiness to `poll`, `select`, and `epoll`.
-- `llseek` is `no_llseek` because the device is a stream.
+- `open` saves the driver context in `file->private_data`.
+- `release` drops the open-handle count.
+- `read` drains bytes from the circular buffer.
+- `write` appends bytes into the circular buffer.
+- `unlocked_ioctl` handles clear, stats, capacity, mode, and reset commands.
+- `poll` reports readable and writable readiness.
+- `llseek` is `no_llseek`, because this device is a stream.
+
+There is only one device instance, so one central driver context is enough.
 
 ## Circular Buffer
 
-The buffer tracks an allocated byte array, total capacity, stored byte count,
-read index, and write index. Reads and writes operate on contiguous spans and
-then consume or commit those spans. This avoids large temporary allocations and
-handles wraparound explicitly.
+The buffer keeps five pieces of state: data pointer, capacity, stored byte
+count, read index, and write index. The read/write helpers expose contiguous
+spans so the driver can copy directly to or from user space without allocating
+a large temporary buffer for every operation.
 
-Resize preserves unread data in FIFO order. A resize smaller than the unread
-byte count fails with `-EMSGSIZE`. Invalid capacities fail with `-EINVAL`.
+Resize is intentionally conservative. If the new capacity can hold all unread
+bytes, the old circular contents are linearized into the new allocation. If the
+caller asks for a capacity smaller than the unread data, resize fails with
+`-EMSGSIZE`.
 
 ## Locking
 
-The driver uses one mutex around shared mutable device state: buffer metadata,
-buffer contents, mode, and shutdown state. Statistics that are frequently
-updated use `atomic64_t`, while capacity and stored-byte snapshots are read
-under the mutex for ioctl stats.
+Buffer contents, buffer metadata, mode, and shutdown state are protected by one
+mutex. The high-frequency counters are `atomic64_t`, which keeps simple stats
+updates out of the main lock path.
 
-The driver never waits on a wait queue while holding the mutex. Blocking paths
-check the condition, drop the mutex, sleep with `wait_event_interruptible`, and
-then reacquire and recheck.
+The blocking paths use the usual pattern:
+
+1. take the mutex
+2. check whether the operation can continue
+3. drop the mutex before sleeping
+4. wait with `wait_event_interruptible`
+5. take the mutex again and recheck
+
+That recheck matters. A wakeup only means "look again", not "the condition is
+guaranteed forever."
 
 ## Wait Queues
 
-Readers sleep on `read_queue` when the buffer is empty and blocking behavior is
-enabled. Writers sleep on `write_queue` when the buffer is full. Successful
-writes wake readers. Successful reads, clears, and resizes wake writers.
+Empty-buffer readers wait on `read_queue`. Full-buffer writers wait on
+`write_queue`.
 
-A state-generation counter lets control-plane operations such as clear, resize,
-and mode changes wake blocked readers or writers even when the byte count alone
-does not change in their favor.
+Successful writes wake readers. Successful reads wake writers. Clear, resize,
+and mode changes wake both sides because they change the state a blocked
+process may care about.
+
+The driver also keeps a small state-generation counter. That gives blocked
+readers a way to notice control-plane changes such as clear or mode change even
+when no new data was written.
 
 ## Poll
 
-`poll_wait` registers the caller on both wait queues. The driver reports:
+`poll_wait` registers the caller on both wait queues. Then the driver checks
+the current buffer state:
 
-- `POLLIN | POLLRDNORM` when stored bytes are available.
-- `POLLOUT | POLLWRNORM` when at least one byte of capacity is free.
+- stored bytes mean `POLLIN | POLLRDNORM`
+- free space means `POLLOUT | POLLWRNORM`
 
-This supports `poll`, `select`, and `epoll` through the standard VFS path.
+That is enough for `poll`, `select`, and `epoll` users because they all come
+through the same file operation.
 
 ## IOCTL
 
-The ABI is declared in `include/shivam_char_ioctl.h`, which is shared by the
-module and user-space tools. The statistics structure includes an ABI version
-and structure size so user space can detect incompatible changes.
+The ABI is in `include/shivam_char_ioctl.h`. The stats structure includes both
+`abi_version` and `struct_size`; that is a small amount of discipline up front
+that makes future changes less messy.
 
-The driver validates ioctl magic and command numbers. Unsupported commands
-return `-ENOTTY`.
+Unsupported ioctl commands return `-ENOTTY`. Bad user pointers return
+`-EFAULT`. Invalid capacities return `-EINVAL` or `-EMSGSIZE`, depending on
+whether the value is out of range or too small for the unread data.
 
 ## Lifecycle and Cleanup
 
-Initialization uses structured `goto` cleanup labels so partial setup is
-unwound in reverse order. Module removal wakes waiters, destroys the device
-node and class, deletes the `cdev`, unregisters the device number, frees the
-circular buffer, and releases the driver context. Normal module ownership
-prevents `rmmod` while file descriptors are open.
+Initialization unwinds in reverse order with `goto` labels. On unload, the
+module wakes waiters, destroys the device node, destroys the class, deletes the
+`cdev`, unregisters the device number, frees the buffer, and frees the driver
+context.
+
+If a process still has the device open, normal module ownership keeps `rmmod`
+from removing it.
 
