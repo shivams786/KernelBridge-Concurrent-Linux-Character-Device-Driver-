@@ -1,0 +1,13 @@
+SPDX-License-Identifier: GPL-2.0-only
+
+Copyright (c) 2026 Shivam Singh
+
+This project is licensed under the GNU General Public License version 2
+only, the same license family commonly used for Linux kernel modules.
+
+You may copy, distribute, and modify this project under the terms of the
+GNU General Public License version 2 as published by the Free Software
+Foundation. The complete GPL-2.0 license text is distributed with the
+Linux kernel source tree in the file named COPYING and is also available
+from the Free Software Foundation.
+
