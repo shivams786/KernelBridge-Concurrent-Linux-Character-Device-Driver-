@@ -13,7 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "shivam_char_ioctl.h"
+#include "ringbuf_char_ioctl.h"
 
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
@@ -79,7 +79,7 @@ static void usage(FILE *stream, const char *program)
 		"  --messages N        Messages per writer, 1..100000 (default: 1000)\n"
 		"  --size N            Framed message size, 20..4096 (default: 64)\n"
 		"  --help              Show this help\n",
-		program, SHIVAM_CHAR_DEVICE_PATH);
+		program, RINGBUF_CHAR_DEVICE_PATH);
 }
 
 static int parse_uint(const char *text, unsigned int min_value,
@@ -500,7 +500,7 @@ static int parse_args(int argc, char **argv, struct test_options *opts)
 {
 	int index;
 
-	opts->device_path = SHIVAM_CHAR_DEVICE_PATH;
+	opts->device_path = RINGBUF_CHAR_DEVICE_PATH;
 	opts->writers = DEFAULT_WRITERS;
 	opts->readers = DEFAULT_READERS;
 	opts->messages = DEFAULT_MESSAGES;

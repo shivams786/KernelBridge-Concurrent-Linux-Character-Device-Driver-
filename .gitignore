@@ -10,6 +10,7 @@
 *.log
 .*.cmd
 .cache/
+.tmp/
 .tmp_versions/
 Module.markers
 modules.order
@@ -17,7 +18,6 @@ Module.symvers
 tags
 cscope.*
 compile_commands.json
-userspace/shivam_char_client
+userspace/ringbuf_char_client
 userspace/concurrent_test
 tests/logs/
-

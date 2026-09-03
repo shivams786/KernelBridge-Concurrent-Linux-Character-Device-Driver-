@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CLIENT="${ROOT_DIR}/userspace/shivam_char_client"
-DEVICE="/dev/shivam_char"
+CLIENT="${ROOT_DIR}/userspace/ringbuf_char_client"
+DEVICE="/dev/ringbuf_char"
 TMP_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -22,7 +22,7 @@ fi
 
 "$CLIENT" clear >/dev/null
 
-MESSAGE="hello from shivam_char"
+MESSAGE="hello from ringbuf_char"
 printf '%s' "$MESSAGE" >"${TMP_DIR}/expected"
 "$CLIENT" write "$MESSAGE" >/dev/null
 "$CLIENT" read "${#MESSAGE}" >"${TMP_DIR}/actual"

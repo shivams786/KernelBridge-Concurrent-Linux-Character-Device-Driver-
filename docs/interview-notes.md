@@ -6,7 +6,7 @@ code line by line.
 ## What is a character device?
 
 A character device is a byte-oriented kernel interface exposed through a device
-node such as `/dev/shivam_char`. User space talks to it with familiar file
+node such as `/dev/ringbuf_char`. User space talks to it with familiar file
 operations: `open`, `read`, `write`, `ioctl`, and `poll`.
 
 ## What are major and minor numbers?

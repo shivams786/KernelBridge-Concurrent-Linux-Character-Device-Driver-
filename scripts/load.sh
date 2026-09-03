@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODULE_NAME="shivam_char"
+MODULE_NAME="ringbuf_char"
 MODULE_PATH="${ROOT_DIR}/${MODULE_NAME}.ko"
 DEVICE_PATH="/dev/${MODULE_NAME}"
 FORCE_UNLOAD=0
@@ -14,8 +14,8 @@ usage() {
 Usage: sudo bash scripts/load.sh [--force] [--chmod] [module_param=value ...]
 
 Options:
-  --force   unload an existing shivam_char module before loading
-  --chmod   apply chmod 666 to /dev/shivam_char for disposable local testing
+  --force   unload an existing ringbuf_char module before loading
+  --chmod   apply chmod 666 to /dev/ringbuf_char for disposable local testing
 USAGE
 }
 
@@ -91,5 +91,5 @@ else
 fi
 
 echo "load: recent driver logs"
-dmesg 2>/dev/null | grep 'shivam_char:' | tail -20 || true
+dmesg 2>/dev/null | grep 'ringbuf_char:' | tail -20 || true
 

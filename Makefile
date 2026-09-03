@@ -1,7 +1,7 @@
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(CURDIR)
 
-.PHONY: all module userspace test load unload reload clean lint shellcheck cppcheck sparse help check-headers
+.PHONY: all module userspace test load unload reload clean lint shellcheck cppcheck sparse verify help check-headers
 
 all: module userspace
 
@@ -42,6 +42,9 @@ sparse: check-headers
 
 lint: shellcheck cppcheck
 
+verify:
+	bash scripts/dev_check.sh
+
 clean:
 	$(MAKE) -C userspace clean
 	@if [ -d "$(KDIR)" ]; then \
@@ -55,10 +58,11 @@ clean:
 help:
 	@echo "Targets:"
 	@echo "  make             Build kernel module and user-space tools"
-	@echo "  make module      Build shivam_char.ko through kernel Kbuild"
+	@echo "  make module      Build ringbuf_char.ko through kernel Kbuild"
 	@echo "  make userspace   Build CLI and concurrency test"
 	@echo "  make test        Run integration tests in a privileged Linux VM"
 	@echo "  make load        Load the module"
 	@echo "  make unload      Unload the module"
 	@echo "  make reload      Rebuild and reload the module"
+	@echo "  make verify      Run safe local repository checks"
 	@echo "  make clean       Remove generated build artifacts"

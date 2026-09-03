@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "shivam_char_ioctl.h"
+#include "ringbuf_char_ioctl.h"
 
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
@@ -361,7 +361,7 @@ static int command_clear(const struct cli_options *opts)
 	if (fd == -1)
 		return 1;
 
-	if (ioctl_retry(fd, SHIVAM_CHAR_IOC_CLEAR, NULL) == -1) {
+	if (ioctl_retry(fd, RINGBUF_CHAR_IOC_CLEAR, NULL) == -1) {
 		print_errno("ioctl CLEAR", errno);
 		rc = 1;
 	} else {
@@ -383,7 +383,7 @@ static int command_capacity(const struct cli_options *opts)
 	if (fd == -1)
 		return 1;
 
-	if (ioctl_retry(fd, SHIVAM_CHAR_IOC_GET_CAPACITY, &capacity) == -1) {
+	if (ioctl_retry(fd, RINGBUF_CHAR_IOC_GET_CAPACITY, &capacity) == -1) {
 		print_errno("ioctl GET_CAPACITY", errno);
 		rc = 1;
 	} else {
@@ -413,7 +413,7 @@ static int command_resize(const struct cli_options *opts, const char *text)
 	if (fd == -1)
 		return 1;
 
-	if (ioctl_retry(fd, SHIVAM_CHAR_IOC_SET_CAPACITY, &capacity) == -1) {
+	if (ioctl_retry(fd, RINGBUF_CHAR_IOC_SET_CAPACITY, &capacity) == -1) {
 		print_errno("ioctl SET_CAPACITY", errno);
 		rc = 1;
 	} else {
@@ -426,7 +426,7 @@ static int command_resize(const struct cli_options *opts, const char *text)
 	return rc;
 }
 
-static void print_stats(const struct shivam_char_stats *stats)
+static void print_stats(const struct ringbuf_char_stats *stats)
 {
 	printf("abi_version: %u\n", stats->abi_version);
 	printf("struct_size: %u\n", stats->struct_size);
@@ -456,7 +456,7 @@ static void print_stats(const struct shivam_char_stats *stats)
 
 static int command_stats(const struct cli_options *opts)
 {
-	struct shivam_char_stats stats;
+	struct ringbuf_char_stats stats;
 	int fd = open_device(opts, O_RDWR);
 	int rc = 0;
 
@@ -464,15 +464,15 @@ static int command_stats(const struct cli_options *opts)
 		return 1;
 
 	memset(&stats, 0, sizeof(stats));
-	if (ioctl_retry(fd, SHIVAM_CHAR_IOC_GET_STATS, &stats) == -1) {
+	if (ioctl_retry(fd, RINGBUF_CHAR_IOC_GET_STATS, &stats) == -1) {
 		print_errno("ioctl GET_STATS", errno);
 		rc = 1;
-	} else if (stats.abi_version != SHIVAM_CHAR_ABI_VERSION ||
+	} else if (stats.abi_version != RINGBUF_CHAR_ABI_VERSION ||
 		   stats.struct_size != sizeof(stats)) {
 		fprintf(stderr,
 			"unexpected stats ABI: version=%u size=%u expected version=%u size=%zu\n",
 			stats.abi_version, stats.struct_size,
-			SHIVAM_CHAR_ABI_VERSION, sizeof(stats));
+			RINGBUF_CHAR_ABI_VERSION, sizeof(stats));
 		rc = 1;
 	} else {
 		print_stats(&stats);
@@ -492,7 +492,7 @@ static int command_reset_stats(const struct cli_options *opts)
 	if (fd == -1)
 		return 1;
 
-	if (ioctl_retry(fd, SHIVAM_CHAR_IOC_RESET_STATS, NULL) == -1) {
+	if (ioctl_retry(fd, RINGBUF_CHAR_IOC_RESET_STATS, NULL) == -1) {
 		print_errno("ioctl RESET_STATS", errno);
 		rc = 1;
 	} else {
@@ -514,7 +514,7 @@ static int command_mode(const struct cli_options *opts, const char *mode_text)
 	if (strcmp(mode_text, "normal") == 0) {
 		mode = 0;
 	} else if (strcmp(mode_text, "nonblock") == 0) {
-		mode = SHIVAM_CHAR_MODE_F_NONBLOCK;
+		mode = RINGBUF_CHAR_MODE_F_NONBLOCK;
 	} else {
 		fprintf(stderr, "mode must be 'normal' or 'nonblock'\n");
 		return 1;
@@ -524,7 +524,7 @@ static int command_mode(const struct cli_options *opts, const char *mode_text)
 	if (fd == -1)
 		return 1;
 
-	if (ioctl_retry(fd, SHIVAM_CHAR_IOC_SET_MODE, &mode) == -1) {
+	if (ioctl_retry(fd, RINGBUF_CHAR_IOC_SET_MODE, &mode) == -1) {
 		print_errno("ioctl SET_MODE", errno);
 		rc = 1;
 	} else {
@@ -659,13 +659,13 @@ static int command_interactive(const char *program, const struct cli_options *op
 {
 	char line[INTERACTIVE_LINE_SIZE];
 
-	puts("shivam_char interactive mode. Type 'help' or 'quit'.");
+	puts("ringbuf_char interactive mode. Type 'help' or 'quit'.");
 	for (;;) {
 		char *argv[INTERACTIVE_MAX_ARGS];
 		int argc;
 		int rc;
 
-		fputs("shivam_char> ", stdout);
+		fputs("ringbuf_char> ", stdout);
 		fflush(stdout);
 
 		if (!fgets(line, sizeof(line), stdin)) {
@@ -777,7 +777,7 @@ static int dispatch_command(const char *program, const struct cli_options *opts,
 int main(int argc, char **argv)
 {
 	struct cli_options opts = {
-		.device_path = SHIVAM_CHAR_DEVICE_PATH,
+		.device_path = RINGBUF_CHAR_DEVICE_PATH,
 		.nonblock = false,
 	};
 	int index = 1;

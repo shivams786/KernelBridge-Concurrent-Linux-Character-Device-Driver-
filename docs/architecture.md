@@ -6,13 +6,13 @@ what the module registers, then follow one system call at a time.
 
 ## Device Registration
 
-`shivam_char` is an out-of-tree module. On load, it:
+`ringbuf_char` is an out-of-tree module. On load, it:
 
 - validates the `buffer_capacity` module parameter
 - allocates the circular buffer
 - asks the kernel for a device number with `alloc_chrdev_region`
 - initializes and registers a `struct cdev`
-- creates a class and device node for `/dev/shivam_char`
+- creates a class and device node for `/dev/ringbuf_char`
 
 The driver does not use a hardcoded major number. The running kernel may
 already have that number assigned to something else, so dynamic allocation is
@@ -20,7 +20,7 @@ the safer default.
 
 ## VFS Dispatch
 
-Once `/dev/shivam_char` exists, normal system calls reach the driver through
+Once `/dev/ringbuf_char` exists, normal system calls reach the driver through
 the VFS. The module fills a `struct file_operations` table with these handlers:
 
 - `open` saves the driver context in `file->private_data`.
@@ -88,7 +88,7 @@ through the same file operation.
 
 ## IOCTL
 
-The ABI is in `include/shivam_char_ioctl.h`. The stats structure includes both
+The ABI is in `include/ringbuf_char_ioctl.h`. The stats structure includes both
 `abi_version` and `struct_size`; that is a small amount of discipline up front
 that makes future changes less messy.
 

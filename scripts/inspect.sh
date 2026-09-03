@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODULE_NAME="shivam_char"
+MODULE_NAME="ringbuf_char"
 MODULE_PATH="${ROOT_DIR}/${MODULE_NAME}.ko"
 DEVICE_PATH="/dev/${MODULE_NAME}"
-CLIENT="${ROOT_DIR}/userspace/shivam_char_client"
+CLIENT="${ROOT_DIR}/userspace/ringbuf_char_client"
 
 section() {
   printf '\n== %s ==\n' "$1"
@@ -49,5 +49,5 @@ else
 fi
 
 section "Recent Logs"
-dmesg 2>/dev/null | grep 'shivam_char:' | tail -50 || true
+dmesg 2>/dev/null | grep 'ringbuf_char:' | tail -50 || true
 

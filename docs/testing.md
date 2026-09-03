@@ -59,7 +59,7 @@ make cppcheck
 make sparse
 make C=1 module
 cd userspace && make asan
-valgrind ./shivam_char_client stats
+valgrind ./ringbuf_char_client stats
 ```
 
 GitHub Actions only builds the user-space programs and runs static checks that

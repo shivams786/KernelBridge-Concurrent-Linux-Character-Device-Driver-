@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODULE_NAME="shivam_char"
+MODULE_NAME="ringbuf_char"
 DEVICE_PATH="/dev/${MODULE_NAME}"
 QUIET=0
 
@@ -64,7 +64,7 @@ fi
 
 if [[ "$QUIET" -eq 0 ]]; then
   echo "unload: ${MODULE_NAME} unloaded"
-  dmesg 2>/dev/null | grep 'shivam_char:' | tail -20 || true
+  dmesg 2>/dev/null | grep 'ringbuf_char:' | tail -20 || true
 fi
 
 :

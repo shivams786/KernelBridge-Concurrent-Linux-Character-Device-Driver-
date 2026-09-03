@@ -4,19 +4,19 @@
 #include <linux/string.h>
 #include <linux/vmalloc.h>
 
-#include <shivam_char_ioctl.h>
+#include <ringbuf_char_ioctl.h>
 
-#include "shivam_char_buffer.h"
+#include "ringbuf_char_buffer.h"
 
-static bool shivam_char_capacity_valid(size_t capacity)
+static bool ringbuf_char_capacity_valid(size_t capacity)
 {
-	return capacity >= SHIVAM_CHAR_MIN_CAPACITY &&
-	       capacity <= SHIVAM_CHAR_MAX_CAPACITY;
+	return capacity >= RINGBUF_CHAR_MIN_CAPACITY &&
+	       capacity <= RINGBUF_CHAR_MAX_CAPACITY;
 }
 
-int shivam_char_buffer_init(struct shivam_char_buffer *buffer, size_t capacity)
+int ringbuf_char_buffer_init(struct ringbuf_char_buffer *buffer, size_t capacity)
 {
-	if (!buffer || !shivam_char_capacity_valid(capacity))
+	if (!buffer || !ringbuf_char_capacity_valid(capacity))
 		return -EINVAL;
 
 	buffer->data = kvmalloc(capacity, GFP_KERNEL);
@@ -31,7 +31,7 @@ int shivam_char_buffer_init(struct shivam_char_buffer *buffer, size_t capacity)
 	return 0;
 }
 
-void shivam_char_buffer_cleanup(struct shivam_char_buffer *buffer)
+void ringbuf_char_buffer_cleanup(struct ringbuf_char_buffer *buffer)
 {
 	if (!buffer)
 		return;
@@ -44,12 +44,12 @@ void shivam_char_buffer_cleanup(struct shivam_char_buffer *buffer)
 	buffer->write_pos = 0;
 }
 
-size_t shivam_char_buffer_stored(const struct shivam_char_buffer *buffer)
+size_t ringbuf_char_buffer_stored(const struct ringbuf_char_buffer *buffer)
 {
 	return buffer ? buffer->len : 0;
 }
 
-size_t shivam_char_buffer_available(const struct shivam_char_buffer *buffer)
+size_t ringbuf_char_buffer_available(const struct ringbuf_char_buffer *buffer)
 {
 	if (!buffer || buffer->len > buffer->capacity)
 		return 0;
@@ -57,7 +57,7 @@ size_t shivam_char_buffer_available(const struct shivam_char_buffer *buffer)
 	return buffer->capacity - buffer->len;
 }
 
-size_t shivam_char_buffer_read_span(const struct shivam_char_buffer *buffer,
+size_t ringbuf_char_buffer_read_span(const struct ringbuf_char_buffer *buffer,
 				    const u8 **ptr)
 {
 	size_t contiguous;
@@ -73,7 +73,7 @@ size_t shivam_char_buffer_read_span(const struct shivam_char_buffer *buffer,
 	return contiguous;
 }
 
-void shivam_char_buffer_consume(struct shivam_char_buffer *buffer, size_t count)
+void ringbuf_char_buffer_consume(struct ringbuf_char_buffer *buffer, size_t count)
 {
 	if (!buffer || !buffer->data || count == 0)
 		return;
@@ -88,7 +88,7 @@ void shivam_char_buffer_consume(struct shivam_char_buffer *buffer, size_t count)
 	}
 }
 
-size_t shivam_char_buffer_write_span(const struct shivam_char_buffer *buffer,
+size_t ringbuf_char_buffer_write_span(const struct ringbuf_char_buffer *buffer,
 				     u8 **ptr)
 {
 	size_t available;
@@ -100,7 +100,7 @@ size_t shivam_char_buffer_write_span(const struct shivam_char_buffer *buffer,
 		return 0;
 	}
 
-	available = shivam_char_buffer_available(buffer);
+	available = ringbuf_char_buffer_available(buffer);
 	if (available == 0) {
 		*ptr = NULL;
 		return 0;
@@ -111,20 +111,20 @@ size_t shivam_char_buffer_write_span(const struct shivam_char_buffer *buffer,
 	return contiguous;
 }
 
-void shivam_char_buffer_commit(struct shivam_char_buffer *buffer, size_t count)
+void ringbuf_char_buffer_commit(struct ringbuf_char_buffer *buffer, size_t count)
 {
 	size_t available;
 
 	if (!buffer || !buffer->data || count == 0)
 		return;
 
-	available = shivam_char_buffer_available(buffer);
+	available = ringbuf_char_buffer_available(buffer);
 	count = min(count, available);
 	buffer->write_pos = (buffer->write_pos + count) % buffer->capacity;
 	buffer->len += count;
 }
 
-size_t shivam_char_buffer_read(struct shivam_char_buffer *buffer, u8 *dst,
+size_t ringbuf_char_buffer_read(struct ringbuf_char_buffer *buffer, u8 *dst,
 			       size_t count)
 {
 	size_t copied = 0;
@@ -134,18 +134,18 @@ size_t shivam_char_buffer_read(struct shivam_char_buffer *buffer, u8 *dst,
 
 	while (copied < count && buffer->len > 0) {
 		const u8 *src;
-		size_t span = shivam_char_buffer_read_span(buffer, &src);
+		size_t span = ringbuf_char_buffer_read_span(buffer, &src);
 		size_t chunk = min(count - copied, span);
 
 		memcpy(dst + copied, src, chunk);
-		shivam_char_buffer_consume(buffer, chunk);
+		ringbuf_char_buffer_consume(buffer, chunk);
 		copied += chunk;
 	}
 
 	return copied;
 }
 
-size_t shivam_char_buffer_write(struct shivam_char_buffer *buffer,
+size_t ringbuf_char_buffer_write(struct ringbuf_char_buffer *buffer,
 				const u8 *src, size_t count)
 {
 	size_t copied = 0;
@@ -153,20 +153,20 @@ size_t shivam_char_buffer_write(struct shivam_char_buffer *buffer,
 	if (!buffer || !src || count == 0)
 		return 0;
 
-	while (copied < count && shivam_char_buffer_available(buffer) > 0) {
+	while (copied < count && ringbuf_char_buffer_available(buffer) > 0) {
 		u8 *dst;
-		size_t span = shivam_char_buffer_write_span(buffer, &dst);
+		size_t span = ringbuf_char_buffer_write_span(buffer, &dst);
 		size_t chunk = min(count - copied, span);
 
 		memcpy(dst, src + copied, chunk);
-		shivam_char_buffer_commit(buffer, chunk);
+		ringbuf_char_buffer_commit(buffer, chunk);
 		copied += chunk;
 	}
 
 	return copied;
 }
 
-void shivam_char_buffer_clear(struct shivam_char_buffer *buffer)
+void ringbuf_char_buffer_clear(struct ringbuf_char_buffer *buffer)
 {
 	if (!buffer)
 		return;
@@ -176,13 +176,13 @@ void shivam_char_buffer_clear(struct shivam_char_buffer *buffer)
 	buffer->write_pos = 0;
 }
 
-int shivam_char_buffer_resize(struct shivam_char_buffer *buffer,
+int ringbuf_char_buffer_resize(struct ringbuf_char_buffer *buffer,
 			      size_t new_capacity)
 {
 	u8 *new_data;
 	size_t index;
 
-	if (!buffer || !shivam_char_capacity_valid(new_capacity))
+	if (!buffer || !ringbuf_char_capacity_valid(new_capacity))
 		return -EINVAL;
 
 	if (new_capacity < buffer->len)

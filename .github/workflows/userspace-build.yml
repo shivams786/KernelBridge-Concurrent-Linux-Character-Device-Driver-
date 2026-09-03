@@ -28,6 +28,9 @@ jobs:
       - name: Run cppcheck on user-space code
         run: cppcheck --enable=warning,style,performance,portability --error-exitcode=1 --std=c11 -Iinclude userspace
 
+      - name: Run repository verification
+        run: bash scripts/dev_check.sh
+
       - name: Explain kernel integration testing
         run: |
           echo "GitHub-hosted runners are not used to load this kernel module."

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CLIENT="${ROOT_DIR}/userspace/shivam_char_client"
+CLIENT="${ROOT_DIR}/userspace/ringbuf_char_client"
 CONCURRENT="${ROOT_DIR}/userspace/concurrent_test"
 TMP_DIR="$(mktemp -d)"
 

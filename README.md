@@ -1,6 +1,6 @@
 # Linux Character Device Driver with Concurrent Buffering and IOCTL Control
 
-`shivam_char` is a small Linux character-device driver I built to practice the
+`ringbuf_char` is a small Linux character-device driver I built to practice the
 parts of kernel development that are hard to learn from isolated snippets:
 registration, VFS callbacks, user/kernel copies, blocking behavior,
 concurrency, ioctl design, and testing from user space.
@@ -8,7 +8,7 @@ concurrency, ioctl design, and testing from user space.
 The module creates one device:
 
 ```text
-/dev/shivam_char
+/dev/ringbuf_char
 ```
 
 It is intentionally virtual. There is no PCIe card, USB endpoint, or sensor
@@ -47,13 +47,17 @@ The parts I cared most about were:
 - having tests that catch hangs instead of waiting forever
 - documenting the tradeoffs, not just the happy path
 
+The repository now also includes a system-design package under `docs/` so the
+project can be discussed like a maintained systems component, not just a code
+sample.
+
 ## 3. Architecture Diagram
 
 ```mermaid
 flowchart TD
     User["User process"]
     VFS["VFS"]
-    Fops["shivam_char file_operations"]
+    Fops["ringbuf_char file_operations"]
     Buffer["circular buffer"]
     Mutex["mutex"]
     RQ["reader wait queue"]
@@ -74,7 +78,7 @@ flowchart TD
 ## 4. Kernel/User Interaction
 
 Both the module and the user-space tools include
-`include/shivam_char_ioctl.h`. That header is the ABI: ioctl numbers, capacity
+`include/ringbuf_char_ioctl.h`. That header is the ABI: ioctl numbers, capacity
 limits, mode flags, and the statistics structure all live there.
 
 Reads and writes behave like a byte stream. A write can be partial if the
@@ -91,12 +95,13 @@ linux-char-driver/
 |-- Makefile
 |-- Kbuild
 |-- .gitignore
+|-- .editorconfig
 |-- include/
-|   `-- shivam_char_ioctl.h
+|   `-- ringbuf_char_ioctl.h
 |-- kernel/
-|   |-- shivam_char.c
-|   |-- shivam_char_buffer.c
-|   `-- shivam_char_buffer.h
+|   |-- ringbuf_char.c
+|   |-- ringbuf_char_buffer.c
+|   `-- ringbuf_char_buffer.h
 |-- userspace/
 |   |-- client.c
 |   |-- concurrent_test.c
@@ -114,12 +119,23 @@ linux-char-driver/
 |   |-- unload.sh
 |   |-- reload.sh
 |   |-- inspect.sh
-|   `-- clean.sh
+|   |-- clean.sh
+|   `-- dev_check.sh
 |-- docs/
+|   |-- PROJECT_ASSESSMENT_AND_ROADMAP.md
+|   |-- ARCHITECTURE_SCORECARD.md
+|   |-- IMPROVEMENT_LOG.md
+|   |-- TECHNICAL_DEBT.md
 |   |-- architecture.md
 |   |-- testing.md
 |   |-- design-decisions.md
-|   `-- interview-notes.md
+|   |-- interview-notes.md
+|   |-- api/
+|   |-- architecture/
+|   |-- system-design/
+|   |-- security/
+|   |-- operations/
+|   `-- adr/
 `-- .github/
     `-- workflows/
         `-- userspace-build.yml
@@ -167,6 +183,7 @@ sudo bash scripts/setup.sh --install --yes
 make
 make module
 make userspace
+make verify
 ```
 
 The kernel module is built the normal out-of-tree way:
@@ -177,6 +194,9 @@ make -C /lib/modules/$(uname -r)/build M=$PWD modules
 
 If that path does not exist, install the matching header package for the
 running kernel.
+
+`make verify` runs safe local checks and clearly reports skipped checks when a
+Linux-only tool or kernel header tree is unavailable.
 
 ## 9. Load and Unload
 
@@ -203,23 +223,23 @@ I do not recommend doing that on a shared or important machine.
 ## 10. CLI Usage
 
 ```sh
-userspace/shivam_char_client write "hello world"
-userspace/shivam_char_client read 64
-userspace/shivam_char_client stats
-userspace/shivam_char_client clear
-userspace/shivam_char_client capacity
-userspace/shivam_char_client resize 8192
-userspace/shivam_char_client mode nonblock
-userspace/shivam_char_client mode normal
-userspace/shivam_char_client reset-stats
-userspace/shivam_char_client poll-read 5000
-userspace/shivam_char_client interactive
+userspace/ringbuf_char_client write "hello world"
+userspace/ringbuf_char_client read 64
+userspace/ringbuf_char_client stats
+userspace/ringbuf_char_client clear
+userspace/ringbuf_char_client capacity
+userspace/ringbuf_char_client resize 8192
+userspace/ringbuf_char_client mode nonblock
+userspace/ringbuf_char_client mode normal
+userspace/ringbuf_char_client reset-stats
+userspace/ringbuf_char_client poll-read 5000
+userspace/ringbuf_char_client interactive
 ```
 
 Per-descriptor non-blocking read:
 
 ```sh
-userspace/shivam_char_client --nonblock read 16
+userspace/ringbuf_char_client --nonblock read 16
 ```
 
 ## 11. Testing
@@ -246,13 +266,13 @@ The runner unloads the module on exit and stores logs under `tests/logs/`.
 ## 12. Sample Output
 
 ```text
-$ userspace/shivam_char_client write "hello world"
+$ userspace/ringbuf_char_client write "hello world"
 wrote 11 bytes
 
-$ userspace/shivam_char_client read 11
+$ userspace/ringbuf_char_client read 11
 hello world
 
-$ userspace/shivam_char_client stats
+$ userspace/ringbuf_char_client stats
 abi_version: 1
 struct_size: 136
 capacity: 4096
@@ -322,7 +342,7 @@ sudo bash scripts/load.sh --force
 Module busy:
 
 ```sh
-sudo fuser -v /dev/shivam_char
+sudo fuser -v /dev/ringbuf_char
 sudo bash scripts/unload.sh
 ```
 
@@ -330,7 +350,7 @@ Quick inspection:
 
 ```sh
 sudo bash scripts/inspect.sh
-dmesg | grep 'shivam_char:'
+dmesg | grep 'ringbuf_char:'
 ```
 
 ## 17. Interview Discussion Points
@@ -341,6 +361,29 @@ structured, how `poll` hooks into wait queues, and why ioctl ABIs are awkward
 to change later.
 
 See `docs/interview-notes.md` for short answers.
+
+## 17.1 System Design Package
+
+For a deeper review, start here:
+
+- `docs/PROJECT_ASSESSMENT_AND_ROADMAP.md`
+- `docs/system-design/HLD.md`
+- `docs/system-design/LLD.md`
+- `docs/system-design/database-design.md`
+- `docs/system-design/capacity-planning.md`
+- `docs/system-design/tradeoffs.md`
+- `docs/system-design/failure-scenarios.md`
+- `docs/system-design/scaling-strategy.md`
+- `docs/system-design/caching-strategy.md`
+- `docs/system-design/observability-and-alerting.md`
+- `docs/system-design/sequence-diagrams.md`
+- `docs/system-design/async-processing-and-idempotency.md`
+- `docs/system-design/production-readiness-review.md`
+- `docs/api/API_SPECIFICATION.md`
+- `docs/security/threat-model.md`
+- `docs/operations/runbook.md`
+- `docs/adr/`
+- `docs/ARCHITECTURE_SCORECARD.md`
 
 ## 18. Resume Bullets
 
@@ -368,9 +411,9 @@ cd linux-char-driver
 bash scripts/setup.sh
 make
 sudo bash scripts/load.sh buffer_capacity=4096
-userspace/shivam_char_client write "driver smoke test"
-userspace/shivam_char_client read 17
-userspace/shivam_char_client stats
+userspace/ringbuf_char_client write "driver smoke test"
+userspace/ringbuf_char_client read 17
+userspace/ringbuf_char_client stats
 sudo bash scripts/unload.sh
 ```
 
@@ -389,6 +432,7 @@ concurrency.
 ```sh
 make clean
 make module
+make verify
 sudo bash scripts/reload.sh debug=1
 sudo bash scripts/inspect.sh
 dmesg | tail -100
@@ -396,10 +440,10 @@ dmesg | tail -100
 
 ## Final Verification Checklist
 
-- `include/shivam_char_ioctl.h` is shared by kernel and user space.
+- `include/ringbuf_char_ioctl.h` is shared by kernel and user space.
 - `Kbuild` lists both kernel objects.
 - The top-level `Makefile` uses `/lib/modules/$(uname -r)/build`.
-- Scripts and tests reference `shivam_char.ko` and `/dev/shivam_char`.
+- Scripts and tests reference `ringbuf_char.ko` and `/dev/ringbuf_char`.
 - Blocking paths drop the mutex before sleeping.
 - Cleanup destroys the device, class, cdev, device number, buffer, and context.
 - User-space programs close file descriptors and free allocated memory.
