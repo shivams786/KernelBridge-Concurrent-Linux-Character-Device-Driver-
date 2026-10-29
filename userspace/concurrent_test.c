@@ -614,6 +614,9 @@ int main(int argc, char **argv)
 	struct timespec end;
 	unsigned int index;
 	unsigned long long expected_frames;
+	unsigned int readers_started = 0;
+	unsigned int writers_started = 0;
+	bool startup_failed = false;
 	unsigned long long missing = 0;
 	unsigned long long failures;
 	double seconds;
@@ -648,8 +651,10 @@ int main(int argc, char **argv)
 			fprintf(stderr, "failed to start reader thread %u\n",
 				index);
 			atomic_store(&state.stop, true);
+			startup_failed = true;
 			goto join_started;
 		}
+		readers_started++;
 	}
 
 	for (index = 0; index < opts.writers; index++) {
@@ -660,20 +665,21 @@ int main(int argc, char **argv)
 			fprintf(stderr, "failed to start writer thread %u\n",
 				index);
 			atomic_store(&state.stop, true);
+			startup_failed = true;
 			goto join_started;
 		}
+		writers_started++;
 	}
 
 join_started:
-	for (index = 0; index < opts.writers; index++) {
-		if (writer_args[index].state)
-			pthread_join(writer_threads[index], NULL);
-	}
+	for (index = 0; index < writers_started; index++)
+		pthread_join(writer_threads[index], NULL);
 
-	for (index = 0; index < opts.readers; index++) {
-		if (reader_args[index].state)
-			pthread_join(reader_threads[index], NULL);
-	}
+	for (index = 0; index < readers_started; index++)
+		pthread_join(reader_threads[index], NULL);
+
+	if (startup_failed)
+		goto out;
 
 	clock_gettime(CLOCK_MONOTONIC, &end);
 

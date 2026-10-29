@@ -70,6 +70,10 @@ ssize_t read(int fd, void *buf, size_t count);
 Behavior:
 
 - returns `0` for zero-length reads
+- clear, resize, and mode changes wake blocked readers to recheck state; they do
+  not produce EOF. Switching to nonblocking mode while empty returns `EAGAIN`.
+- if a user-memory fault occurs after bytes were copied, returns the copied byte
+  count and consumes only those bytes; a fault with no progress returns `EFAULT`.
 - returns up to `count` bytes when data exists
 - blocks when empty unless non-blocking mode is active
 - returns `-EAGAIN` when empty and non-blocking
@@ -85,6 +89,8 @@ ssize_t write(int fd, const void *buf, size_t count);
 Behavior:
 
 - returns `0` for zero-length writes
+- a user-memory fault commits only bytes successfully copied, returning that
+  count when nonzero or `EFAULT` when no progress was made.
 - writes as much as currently fits
 - may return a partial byte count
 - blocks when full unless non-blocking mode is active
@@ -105,6 +111,20 @@ POLLOUT | POLLWRNORM
 ```
 
 ## Ioctl Commands
+
+Controls apply to the single shared device, including calls made through a
+read-only descriptor. Device-node permissions determine who can issue them;
+there is no separate administrative capability check. Clear discards shared
+unread bytes, and mode changes affect every open handle. Use restricted device
+access on shared systems.
+
+Buffer capacity, occupancy, and mode in GET_STATS are sampled under the buffer
+mutex. Operational counters are independent atomics: a snapshot is not a
+transaction across all counters. RESET_STATS resets those counters individually
+and can race with I/O; it does not define an exact measurement interval. For
+repeatable measurements, quiesce workers before reset and after measurement.
+Open-handle count is a live gauge and is not reset. GET_STATS itself increments
+the ioctl counter.
 
 ### `RINGBUF_CHAR_IOC_CLEAR`
 

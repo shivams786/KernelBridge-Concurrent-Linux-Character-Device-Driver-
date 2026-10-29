@@ -12,6 +12,8 @@ PACKAGES=(
   kmod
   util-linux
   procps
+  python3
+  git
 )
 
 log() {
@@ -75,7 +77,7 @@ if [[ "$INSTALL" -eq 0 ]]; then
   log "dry run only. To install packages, run:"
   printf '  sudo bash scripts/setup.sh --install --yes\n'
   log "checking common tools"
-  for tool in gcc make modinfo lsmod insmod rmmod timeout; do
+  for tool in gcc make modinfo lsmod insmod rmmod timeout python3 git; do
     if command -v "$tool" >/dev/null 2>&1; then
       printf '  %-10s ok\n' "$tool"
     else

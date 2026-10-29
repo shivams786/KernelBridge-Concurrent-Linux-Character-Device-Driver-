@@ -20,7 +20,15 @@ jobs:
         run: make userspace
 
       - name: Validate shell syntax
-        run: bash -n scripts/*.sh tests/*.sh
+        run: |
+          bash scripts/check_shell.sh
+          bash tests/test_shell_checker.sh
+
+      - name: Test thread startup failures
+        run: make -C userspace test
+
+      - name: Test behavioral contract lab
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 
       - name: Run shellcheck
         run: shellcheck scripts/*.sh tests/*.sh

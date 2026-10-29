@@ -1,5 +1,19 @@
 # Architecture
 
+KernelBridge has two deliberately separate layers: the C reference driver below
+and a Python validation lab. `contract.py` defines the sequential model;
+`backends.py` supplies independent simulation and Linux syscall adapters;
+`concurrency.py` records intervals; `history.py` checks bounded linearizability;
+`replay.py` reduces fresh simulated executions; `experiment.py` compares deletion
+strategies. `runner.py` saves evidence and `report.py` renders runner bundles
+offline. `validate_linux.py` owns source-snapshot builds and integration cleanup.
+V2 adds `demo.py` to orchestrate bounded child-process execution and attach
+simulated reductions to runner reports. Recorded-history trimming in history.py
+uses quiescent prefix cuts and remains separate from fresh executable replay.
+See [the contract](device-contract.md) for exact scope and [the acceptance ledger](execution-status.md)
+for what has actually run. Study/replay JSON is intentionally separate from the
+existing HTML runner-report format.
+
 This note describes how the driver is wired together. It is written from the
 code outward, because that is usually how I debug kernel projects: start with
 what the module registers, then follow one system call at a time.

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="${ROOT_DIR}/tests/logs/$(date +%Y%m%d-%H%M%S)"
+LOG_DIR="${LOG_DIR:-${ROOT_DIR}/tests/logs/$(date +%Y%m%d-%H%M%S)}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-45}"
 TESTS=(
   test_basic.sh
@@ -10,6 +10,8 @@ TESTS=(
   test_nonblocking.sh
   test_poll.sh
   test_concurrency.sh
+  test_regressions.sh
+  test_contract.sh
 )
 PASSED=0
 FAILED=0

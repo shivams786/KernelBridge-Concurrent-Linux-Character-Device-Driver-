@@ -90,7 +90,7 @@ done
 pass "required files exist"
 
 log "checking shell syntax"
-bash -n scripts/*.sh tests/*.sh
+bash scripts/check_shell.sh
 pass "shell syntax"
 
 log "checking generated-placeholder phrases"

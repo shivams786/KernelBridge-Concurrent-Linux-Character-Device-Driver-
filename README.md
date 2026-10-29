@@ -1,4 +1,4 @@
-# Linux Character Device Driver with Concurrent Buffering and IOCTL Control
+# KernelBridge: Linux Character Device and Contract Lab
 
 `ringbuf_char` is a small Linux character-device driver I built to practice the
 parts of kernel development that are hard to learn from isolated snippets:
@@ -10,6 +10,62 @@ The module creates one device:
 ```text
 /dev/ringbuf_char
 ```
+
+For the next engineering milestones and the evidence needed to present this as
+a senior systems portfolio, see [the senior engineering roadmap](docs/SENIOR_ENGINEERING_ROADMAP.md).
+Kernel build CI and regression tests are included; runtime validation still
+requires a disposable Linux VM. No production-readiness or performance claim is
+implied by a successful build.
+
+The [behavioral contract lab](docs/contract-lab.md) adds seeded scenarios, replay,
+operation histories, and failure reduction. Its portable simulator checks the
+test tooling; the separate Linux adapter exercises the actual device.
+
+The [benchmark protocol](docs/benchmarking.md) compares write/read round trips
+through pipes, socket pairs, and the device, with raw latency samples and repeated
+measurements. Windows baseline results are not Linux driver performance evidence.
+
+The [Linux validation runner](docs/linux-validation.md) builds a recorded source
+snapshot and can run the integration suite in a disposable Linux guest, retaining
+the module hash, test logs, and kernel diagnostics.
+
+## Evidence and current status
+
+The [v2 quality gate](docs/v2-quality-gate.md) records the latest audit and
+verification status. The [v2 workflow](docs/v2-workflow.md) connects seeded
+generation, bounded execution, history checking, simulated reduction and offline
+reports. A [240-run comparison](docs/v2-research-evaluation.md) includes workload
+lengths, worker counts and negative results, not just favorable examples.
+See the [v2 engineering audit](docs/v2-engineering-audit.md) and
+[technical walkthrough](docs/v2-interview-defense.md) for review and presentation.
+
+The [phase acceptance ledger](docs/execution-status.md) separates implemented
+features from verified results and blocked work. The current machine cannot
+run its incomplete WSL Ubuntu installation; Linux compilation, runtime,
+sanitizer, and device-performance acceptance remain open.
+
+The [concurrent replay experiment](docs/concurrency-model.md) re-executes smaller
+simulated workloads while preserving worker ownership. A 40-run comparison of
+single-operation and chunk deletion found equal final sizes and fewer median
+candidate checks for chunk deletion on three injected faults. These are
+[simulator results](docs/experimental-results.md), not kernel bugs or a novel
+minimization algorithm. Every candidate and replay outcome is retained.
+
+- [Device contract](docs/device-contract.md) and [correctness audit](docs/correctness-audit.md)
+- [Fault injection](docs/fault-injection.md) and [performance decisions](docs/performance-methodology.md)
+- [Research comparison](docs/research-landscape.md), [limitations](docs/limitations.md), and [interview defense](docs/interview-defense.md)
+
+Portable demonstration from the repository root (Python 3.10+):
+
+```sh
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 -m lab.experiment --output artifacts/reduction-study
+python3 -m lab.runner --backend simulated --workers 3 --steps 12 --output artifacts/concurrent-demo
+python3 -m lab.report artifacts/concurrent-demo
+```
+
+Use new output directories so earlier evidence is not overwritten. Real-device
+commands are in the Linux validation guide and require a disposable guest.
 
 It is intentionally virtual. There is no PCIe card, USB endpoint, or sensor
 behind it. The point is to make the driver mechanics easy to build, break,

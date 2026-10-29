@@ -20,4 +20,9 @@ cscope.*
 compile_commands.json
 userspace/ringbuf_char_client
 userspace/concurrent_test
+userspace/regression_test
+userspace/thread_start_test
+userspace/abi_dump
+__pycache__/
+artifacts/
 tests/logs/

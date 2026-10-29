@@ -1,7 +1,7 @@
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(CURDIR)
 
-.PHONY: all module userspace test load unload reload clean lint shellcheck cppcheck sparse verify help check-headers
+.PHONY: all module userspace test kunit load unload reload clean lint shellcheck cppcheck sparse verify help check-headers
 
 all: module userspace
 
@@ -18,6 +18,10 @@ module: check-headers
 
 userspace:
 	$(MAKE) -C userspace
+
+kunit: check-headers
+	@grep -q '^CONFIG_KUNIT=[ym]' "$(KDIR)/.config" || { echo "KUnit-enabled kernel required"; exit 1; }
+	$(MAKE) -C $(KDIR) M=$(PWD) RINGBUF_KUNIT=1 modules
 
 test: all
 	sudo bash tests/run_all_tests.sh
@@ -61,6 +65,7 @@ help:
 	@echo "  make module      Build ringbuf_char.ko through kernel Kbuild"
 	@echo "  make userspace   Build CLI and concurrency test"
 	@echo "  make test        Run integration tests in a privileged Linux VM"
+	@echo "  make kunit       Build optional buffer tests for a KUnit-enabled kernel"
 	@echo "  make load        Load the module"
 	@echo "  make unload      Unload the module"
 	@echo "  make reload      Rebuild and reload the module"

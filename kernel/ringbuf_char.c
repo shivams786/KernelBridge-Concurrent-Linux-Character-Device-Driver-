@@ -202,20 +202,7 @@ static ssize_t ringbuf_char_read(struct file *file, char __user *user_buffer,
 			return -ERESTARTSYS;
 		}
 
-		ret = mutex_lock_interruptible(&dev->lock);
-		if (ret) {
-			ringbuf_char_note_failure(dev);
-			return -ERESTARTSYS;
-		}
-
-		if (ringbuf_char_buffer_stored(&dev->buffer) == 0 &&
-		    !dev->shutting_down &&
-		    atomic64_read(&dev->state_generation) != seen_generation) {
-			mutex_unlock(&dev->lock);
-			return 0;
-		}
-
-		mutex_unlock(&dev->lock);
+		/* Control changes require rechecking readiness and blocking mode. */
 	}
 
 	if (dev->shutting_down &&
@@ -228,8 +215,12 @@ static ssize_t ringbuf_char_read(struct file *file, char __user *user_buffer,
 		const u8 *src;
 		size_t span = ringbuf_char_buffer_read_span(&dev->buffer, &src);
 		size_t chunk = min(count - copied, span);
+		size_t missing = copy_to_user(user_buffer + copied, src, chunk);
+		size_t transferred = chunk - missing;
 
-		if (copy_to_user(user_buffer + copied, src, chunk)) {
+		ringbuf_char_buffer_consume(&dev->buffer, transferred);
+		copied += transferred;
+		if (missing) {
 			ringbuf_char_note_failure(dev);
 			pr_warn_ratelimited(
 				"ringbuf_char: copy_to_user failed in read\n");
@@ -239,9 +230,6 @@ static ssize_t ringbuf_char_read(struct file *file, char __user *user_buffer,
 			}
 			break;
 		}
-
-		ringbuf_char_buffer_consume(&dev->buffer, chunk);
-		copied += chunk;
 	}
 
 	mutex_unlock(&dev->lock);
@@ -312,11 +300,17 @@ static ssize_t ringbuf_char_write(struct file *file,
 		u8 *dst;
 		size_t span = ringbuf_char_buffer_write_span(&dev->buffer, &dst);
 		size_t chunk = min(writable - copied, span);
+		size_t missing;
+		size_t transferred;
 
 		if (chunk == 0)
 			break;
 
-		if (copy_from_user(dst, user_buffer + copied, chunk)) {
+		missing = copy_from_user(dst, user_buffer + copied, chunk);
+		transferred = chunk - missing;
+		ringbuf_char_buffer_commit(&dev->buffer, transferred);
+		copied += transferred;
+		if (missing) {
 			ringbuf_char_note_failure(dev);
 			pr_warn_ratelimited(
 				"ringbuf_char: copy_from_user failed in write\n");
@@ -326,9 +320,6 @@ static ssize_t ringbuf_char_write(struct file *file,
 			}
 			break;
 		}
-
-		ringbuf_char_buffer_commit(&dev->buffer, chunk);
-		copied += chunk;
 	}
 
 	mutex_unlock(&dev->lock);
@@ -414,7 +405,7 @@ static long ringbuf_char_ioctl(struct file *file, unsigned int cmd,
 
 		wake_up_interruptible_all(&dev->read_queue);
 		wake_up_interruptible_all(&dev->write_queue);
-		pr_info("ringbuf_char: resized buffer to %llu bytes\n",
+		pr_info_ratelimited("ringbuf_char: resized buffer to %llu bytes\n",
 			(unsigned long long)requested);
 		break;
 	}
@@ -454,7 +445,7 @@ static long ringbuf_char_ioctl(struct file *file, unsigned int cmd,
 		mutex_unlock(&dev->lock);
 		wake_up_interruptible_all(&dev->read_queue);
 		wake_up_interruptible_all(&dev->write_queue);
-		pr_info("ringbuf_char: mode changed to 0x%x\n", mode);
+		pr_info_ratelimited("ringbuf_char: mode changed to 0x%x\n", mode);
 		break;
 	}
 

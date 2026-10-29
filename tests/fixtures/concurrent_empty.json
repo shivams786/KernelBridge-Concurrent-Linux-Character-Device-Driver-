@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "capacity": 256,
+  "operations": [
+    {"op": "read", "count": 1},
+    {"op": "read", "count": 1},
+    {"op": "read", "count": 1},
+    {"op": "read", "count": 1}
+  ]
+}
